@@ -1,3 +1,3 @@
-piexif>=1.1.3
+# Required for image processing
 Pillow>=10.0.0
 tqdm>=4.65.0

@@ -1,5 +1,6 @@
 """
 Command-line interface for Google Photos Metadata Fixer.
+Uses ExifTool for metadata injection (images and videos).
 """
 
 import sys
@@ -9,20 +10,21 @@ from typing import List
 import shutil
 from tqdm import tqdm
 
-from .file_matcher import FileMatcher, MediaFile
-from .metadata_writer import MetadataWriter
+from .file_matcher import FileMatcher, MediaFile, load_json_metadata, extract_phototaken_time, extract_gps_data, extract_description
+from .exiftool_writer import ExifToolMetadataWriter
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """Create and configure argument parser."""
     parser = argparse.ArgumentParser(
-        description="Restore metadata from Google Photos Takeout JSON files into images and videos.",
+        description="Restore metadata from Google Photos Takeout JSON files into images and videos using ExifTool.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   %(prog)s -i /path/to/takeout -o /path/to/output
   %(prog)s -i ./Takeout -o ./Restored --flat
   %(prog)s -i ./Takeout -o ./Restored --dry-run
+  %(prog)s -i ./Takeout -o ./Restored --workers 8
         """
     )
     
@@ -63,6 +65,25 @@ Examples:
     )
     
     parser.add_argument(
+        '--exiftool-path',
+        default='exiftool',
+        help='Path to ExifTool executable (default: exiftool)'
+    )
+    
+    parser.add_argument(
+        '--workers', '-w',
+        type=int,
+        default=4,
+        help='Number of parallel workers for processing (default: 4)'
+    )
+    
+    parser.add_argument(
+        '--error-log',
+        default='unmatched_files.txt',
+        help='Path to error log file (default: unmatched_files.txt in output dir)'
+    )
+    
+    parser.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='Verbose output'
@@ -71,7 +92,7 @@ Examples:
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s 1.0.0'
+        version='%(prog)s 1.1.0'
     )
     
     return parser
@@ -80,7 +101,7 @@ Examples:
 def print_summary(matched: List[MediaFile], unmatched: List[MediaFile], verbose: bool = False):
     """Print processing summary."""
     print(f"\n{'='*60}")
-    print("SUMMARY")
+    print("SCAN SUMMARY")
     print(f"{'='*60}")
     print(f"Files with metadata:     {len(matched):>6}")
     print(f"Files without metadata:  {len(unmatched):>6}")
@@ -88,7 +109,7 @@ def print_summary(matched: List[MediaFile], unmatched: List[MediaFile], verbose:
     
     if unmatched and verbose:
         print(f"\nUnmatched files:")
-        for mf in unmatched[:20]:  # Show first 20
+        for mf in unmatched[:20]:
             print(f"  - {mf.relative_path}")
         if len(unmatched) > 20:
             print(f"  ... and {len(unmatched) - 20} more")
@@ -120,10 +141,15 @@ def main():
         shutil.rmtree(output_dir)
     
     print(f"Scanning: {input_dir}")
+    print(f"ExifTool: {args.exiftool_path}")
     
     # Scan for files
-    matcher = FileMatcher(input_dir)
-    all_files = matcher.scan_media_files()
+    try:
+        matcher = FileMatcher(input_dir)
+        all_files = matcher.scan_media_files()
+    except Exception as e:
+        print(f"Error scanning files: {e}", file=sys.stderr)
+        sys.exit(1)
     
     # Filter by type
     if args.skip_images:
@@ -143,41 +169,77 @@ def main():
         print_summary(matched, unmatched, args.verbose)
         sys.exit(0)
     
+    # Prepare files with metadata
+    files_with_metadata = []
+    for media_file in all_files:
+        if media_file.json_path:
+            metadata = load_json_metadata(media_file.json_path)
+            if metadata:
+                timestamp = extract_phototaken_time(metadata)
+                gps_data = extract_gps_data(metadata)
+                description = extract_description(metadata)
+                files_with_metadata.append((media_file, timestamp, gps_data, description))
+        else:
+            # Files without JSON - still copy them
+            files_with_metadata.append((media_file, None, None, None))
+    
     # Process files
     print(f"\nProcessing files...")
     print(f"Output: {output_dir}")
+    print(f"Workers: {args.workers}")
+    
+    error_log_path = output_dir / args.error_log
     
     try:
-        writer = MetadataWriter(output_dir, preserve_structure=not args.flat)
-    except ImportError as e:
+        writer = ExifToolMetadataWriter(
+            output_dir,
+            preserve_structure=not args.flat,
+            exiftool_path=args.exiftool_path,
+            error_log_path=error_log_path,
+            max_workers=args.workers
+        )
+    except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
+        print("\nPlease install ExifTool:", file=sys.stderr)
+        print("  macOS: brew install exiftool", file=sys.stderr)
+        print("  Linux: sudo apt-get install libimage-exiftool-perl", file=sys.stderr)
+        print("  Windows: https://exiftool.org/install.html", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error initializing writer: {e}", file=sys.stderr)
         sys.exit(1)
     
-    success_count = 0
-    error_count = 0
+    # Progress callback
+    pbar = tqdm(total=len(files_with_metadata), desc="Processing", unit="file")
     
-    with tqdm(total=len(all_files), desc="Processing", unit="file") as pbar:
-        for media_file in all_files:
-            pbar.set_postfix(file=media_file.path.name[:30])
-            
-            if media_file.suffix in FileMatcher.IMAGE_EXTENSIONS:
-                success, message = writer.process_image(media_file)
-            else:
-                success, message = writer.process_video(media_file)
-            
-            if success:
-                success_count += 1
-            else:
-                error_count += 1
-                if args.verbose:
-                    tqdm.write(f"Error: {media_file.relative_path} - {message}")
-            
-            pbar.update(1)
+    def progress_callback(filename):
+        pbar.set_postfix(file=filename[:30])
+        pbar.update(1)
     
+    # Process files with multi-threading
+    success_count, error_count, error_files = writer.process_files_batch(
+        files_with_metadata,
+        progress_callback=progress_callback
+    )
+    
+    pbar.close()
+    
+    # Print results
     print_summary(matched, unmatched, args.verbose)
     print(f"\nProcessing complete:")
     print(f"  Successful: {success_count}")
     print(f"  Errors: {error_count}")
+    
+    if error_files:
+        print(f"\nError log written to: {error_log_path}")
+        print(f"  ({len(error_files)} files failed)")
+        
+        if args.verbose:
+            print("\nFailed files:")
+            for path, msg in error_files[:10]:
+                print(f"  - {path}: {msg}")
+            if len(error_files) > 10:
+                print(f"  ... and {len(error_files) - 10} more")
 
 
 if __name__ == '__main__':
