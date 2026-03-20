@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "google-photos-metadata-fixer"
+version = "1.0.0"
+description = "Restore metadata from Google Photos Takeout JSON files into images and videos"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "bryannamd"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Utilities",
+]
+keywords = ["google-photos", "exif", "metadata", "takeout", "photos"]
+requires-python = ">=3.8"
+dependencies = [
+    "piexif>=1.1.3",
+    "Pillow>=10.0.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+video = [
+    "pyexiftool>=0.5.0",
+]
+
+[project.scripts]
+gpmf = "google_photos_metadata_fixer.cli:main"
+google-photos-metadata-fixer = "google_photos_metadata_fixer.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/bryannamd/GooglePhotoMetadataFixer"
+Repository = "https://github.com/bryannamd/GooglePhotoMetadataFixer"
+Issues = "https://github.com/bryannamd/GooglePhotoMetadataFixer/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["google_photos_metadata_fixer*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
