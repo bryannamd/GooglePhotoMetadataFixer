@@ -29,12 +29,47 @@ This tool matches media files with their corresponding JSON metadata files and i
 
 ## Installation
 
+### 1. Clone the Repository
+
 ```bash
-# Clone the repository
 git clone https://github.com/bryannamd/GooglePhotoMetadataFixer.git
 cd GooglePhotoMetadataFixer
+```
 
-# Install dependencies
+### 2. Set Up Virtual Environment (Recommended)
+
+Using a virtual environment ensures isolated dependencies and avoids conflicts with system Python packages.
+
+**Using `venv` (Python 3.8+):**
+
+```bash
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate virtual environment
+# On macOS/Linux:
+source .venv/bin/activate
+
+# On Windows:
+.venv\Scripts\activate
+```
+
+**Using `conda`:**
+
+```bash
+# Create conda environment
+conda create -n gpmf python=3.11
+
+# Activate conda environment
+conda activate gpmf
+```
+
+### 3. Install Dependencies
+
+With the virtual environment activated, install the required packages:
+
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -54,6 +89,15 @@ sudo apt-get install libimage-exiftool-perl
 ```
 
 ## Usage
+
+> **Note:** Ensure your virtual environment is activated before running the tool.
+> ```bash
+> # On macOS/Linux:
+> source .venv/bin/activate
+> 
+> # On Windows:
+> .venv\Scripts\activate
+> ```
 
 ### Basic Usage
 
